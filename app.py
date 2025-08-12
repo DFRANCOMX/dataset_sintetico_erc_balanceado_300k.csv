@@ -21,93 +21,44 @@ variables = {
     'Creatinina_Serica_mg_dL': (0.3, 15.0),
     'Urea': (5.0, 150.0),
     'BUN': (3.0, 70.0),
+    'TFG': (5.0, 130.0),
     'HbA1c': (4.0, 15.0),
-    'Proteinas_Orina_24h': (0.0, 10000.0),  # mg, luego convertido a gramos
+    'Proteinas_Orina_24h': (0.0, 10.0),
     'Sodio': (120.0, 160.0),
     'Potasio': (2.5, 7.0),
     'Calcio': (7.0, 12.0),
     'Microalbumina_24h': (0.0, 500.0)
 }
 
-columnas_esperadas = ['Sexo', 'Edad', 'Glucosa', 'Volumen_Orina_24h_ml', 'Creatinina_Orina_mg_dL', 
-                      'Creatinina_Serica_mg_dL', 'Urea', 'BUN', 'HbA1c', 'Proteinas_Orina_24h', 
-                      'Sodio', 'Potasio', 'Calcio', 'Microalbumina_24h', 'TFG']
-
 st.title("Predicción de Riesgo de Enfermedad Renal Crónica")
 st.markdown("Ingresa los datos del paciente para predecir la probabilidad de ERC")
 
 datos = {}
-
-datos['Sexo'] = st.selectbox(f"Sexo (0= Mujer, 1= Hombre)", options=[0,1])
-edad_input = st.text_input(f"Edad (rango {variables['Edad'][0]} - {variables['Edad'][1]})", "")
-try:
-    datos['Edad'] = float(edad_input)
-except:
-    datos['Edad'] = np.nan
-
 for var, (min_val, max_val) in variables.items():
-    if var in ['Sexo', 'Edad']:
-        continue
-    valor = st.text_input(f"{var} (rango {min_val} - {max_val})", "")
-    if valor.strip() == "":
-        datos[var] = np.nan
+    if var == 'Sexo':
+        datos[var] = st.selectbox(f"{var} (0= Mujer, 1= Hombre)", options=[0,1])
     else:
-        try:
-            val_float = float(valor)
-            if val_float < min_val or val_float > max_val:
-                st.warning(f"⚠️ El valor de {var} está fuera del rango usual.")
-            datos[var] = val_float
-        except:
-            st.error(f"⚠️ Entrada inválida para {var}, debe ser un número o vacío.")
+        valor = st.text_input(f"{var} (rango {min_val} - {max_val})", "")
+        if valor.strip() == "":
             datos[var] = np.nan
-
-def calcular_tfg(sexo, edad, scr):
-    if np.isnan(sexo) or np.isnan(edad) or np.isnan(scr):
-        return np.nan
-    kappa = 0.7 if sexo == 0 else 0.9
-    alpha = -0.329 if sexo == 0 else -0.411
-    min_scr = min(scr / kappa, 1)
-    max_scr = max(scr / kappa, 1)
-    tfg = 141 * (min_scr ** alpha) * (max_scr ** -1.209) * (0.993 ** edad)
-    if sexo == 0:
-        tfg *= 1.018
-    return tfg
-
-tfg_calc = calcular_tfg(datos['Sexo'], datos['Edad'], datos.get('Creatinina_Serica_mg_dL', np.nan))
-if np.isnan(tfg_calc):
-    st.warning("Para calcular la TFG debe ingresar Sexo, Edad y Creatinina Sérica válidos.")
-datos['TFG'] = tfg_calc
-
-if 'Proteinas_Orina_24h' in datos and not np.isnan(datos['Proteinas_Orina_24h']):
-    datos['Proteinas_Orina_24h'] = datos['Proteinas_Orina_24h'] / 1000.0
-
-# Imputación de valores faltantes
-imputacion = {
-    'Glucosa': 100,
-    'Volumen_Orina_24h_ml': 1500,
-    'Creatinina_Orina_mg_dL': 50,
-    'Urea': 40,
-    'BUN': 20,
-    'HbA1c': 5.5,
-    'Proteinas_Orina_24h': 0.1,
-    'Sodio': 140,
-    'Potasio': 4.5,
-    'Calcio': 9,
-    'Microalbumina_24h': 10,
-    'TFG': 60  # valor promedio si no calculado
-}
-
-for k, v in imputacion.items():
-    if k not in datos or np.isnan(datos[k]):
-        datos[k] = v
+        else:
+            try:
+                val_float = float(valor)
+                if val_float < min_val or val_float > max_val:
+                    st.warning(f"⚠️ El valor de {var} está fuera del rango usual.")
+                datos[var] = val_float
+            except:
+                st.error(f"⚠️ Entrada inválida para {var}, debe ser un número o vacío.")
+                datos[var] = np.nan
 
 df_paciente = pd.DataFrame([datos])
-df_paciente = df_paciente.reindex(columns=columnas_esperadas)
 
 if st.button("Predecir"):
+    df_paciente.fillna(df_paciente.mean(), inplace=True)
+    
     dmat = xgb.DMatrix(df_paciente)
     probs = model.predict(dmat)
-
+    
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(df_paciente)
 
