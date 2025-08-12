@@ -1,4 +1,3 @@
-
 import streamlit as st
 import xgboost as xgb
 import pandas as pd
@@ -38,9 +37,23 @@ st.markdown("Ingresa los datos del paciente para predecir la probabilidad de ERC
 datos = {}
 for var, (min_val, max_val) in variables.items():
     if var == 'Sexo':
-        datos[var] = st.selectbox(f"{var} (0= Mujer, 1= Hombre)", options=[0,1])
+        datos[var] = st.selectbox(f"{var} (0= Mujer, 1= Hombre)", options=[0, 1])
     else:
-        datos[var] = st.slider(f"{var} ({min_val} - {max_val})", min_value=min_val, max_value=max_val, value=min_val)
+        if isinstance(min_val, float) or isinstance(max_val, float):
+            datos[var] = st.slider(
+                f"{var} ({min_val} - {max_val})",
+                min_value=float(min_val),
+                max_value=float(max_val),
+                value=float(min_val),
+                step=0.01
+            )
+        else:
+            datos[var] = st.slider(
+                f"{var} ({min_val} - {max_val})",
+                min_value=int(min_val),
+                max_value=int(max_val),
+                value=int(min_val)
+            )
 
 df_paciente = pd.DataFrame([datos])
 
@@ -63,3 +76,4 @@ if st.button("Predecir"):
 
     st.write("Importancia de variables:")
     st.table(imp_df)
+
