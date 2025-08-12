@@ -22,12 +22,16 @@ variables = {
     'Urea': (5.0, 150.0),
     'BUN': (3.0, 70.0),
     'HbA1c': (4.0, 15.0),
-    'Proteinas_Orina_24h': (0.0, 10000.0),
+    'Proteinas_Orina_24h': (0.0, 10000.0),  # mg, luego convertido a gramos
     'Sodio': (120.0, 160.0),
     'Potasio': (2.5, 7.0),
     'Calcio': (7.0, 12.0),
     'Microalbumina_24h': (0.0, 500.0)
 }
+
+columnas_esperadas = ['Sexo', 'Edad', 'Glucosa', 'Volumen_Orina_24h_ml', 'Creatinina_Orina_mg_dL', 
+                      'Creatinina_Serica_mg_dL', 'Urea', 'BUN', 'HbA1c', 'Proteinas_Orina_24h', 
+                      'Sodio', 'Potasio', 'Calcio', 'Microalbumina_24h', 'TFG']
 
 st.title("Predicción de Riesgo de Enfermedad Renal Crónica")
 st.markdown("Ingresa los datos del paciente para predecir la probabilidad de ERC")
@@ -35,7 +39,11 @@ st.markdown("Ingresa los datos del paciente para predecir la probabilidad de ERC
 datos = {}
 
 datos['Sexo'] = st.selectbox(f"Sexo (0= Mujer, 1= Hombre)", options=[0,1])
-datos['Edad'] = st.text_input(f"Edad (rango {variables['Edad'][0]} - {variables['Edad'][1]})", "")
+edad_input = st.text_input(f"Edad (rango {variables['Edad'][0]} - {variables['Edad'][1]})", "")
+try:
+    datos['Edad'] = float(edad_input)
+except:
+    datos['Edad'] = np.nan
 
 for var, (min_val, max_val) in variables.items():
     if var in ['Sexo', 'Edad']:
@@ -53,13 +61,6 @@ for var, (min_val, max_val) in variables.items():
             st.error(f"⚠️ Entrada inválida para {var}, debe ser un número o vacío.")
             datos[var] = np.nan
 
-try:
-    edad_val = float(datos['Edad'])
-except:
-    edad_val = np.nan
-
-datos['Edad'] = edad_val
-
 def calcular_tfg(sexo, edad, scr):
     if np.isnan(sexo) or np.isnan(edad) or np.isnan(scr):
         return np.nan
@@ -72,16 +73,15 @@ def calcular_tfg(sexo, edad, scr):
         tfg *= 1.018
     return tfg
 
-tfg_calc = calcular_tfg(datos['Sexo'], datos['Edad'], datos['Creatinina_Serica_mg_dL'])
-
+tfg_calc = calcular_tfg(datos['Sexo'], datos['Edad'], datos.get('Creatinina_Serica_mg_dL', np.nan))
 if np.isnan(tfg_calc):
     st.warning("Para calcular la TFG debe ingresar Sexo, Edad y Creatinina Sérica válidos.")
-
 datos['TFG'] = tfg_calc
 
-if not np.isnan(datos['Proteinas_Orina_24h']):
-    datos['Proteinas_Orina_24h'] = datos['Proteinas_Orina_24h'] / 1000  # mg a gramos
+if 'Proteinas_Orina_24h' in datos and not np.isnan(datos['Proteinas_Orina_24h']):
+    datos['Proteinas_Orina_24h'] = datos['Proteinas_Orina_24h'] / 1000.0
 
+# Imputación de valores faltantes
 imputacion = {
     'Glucosa': 100,
     'Volumen_Orina_24h_ml': 1500,
@@ -94,6 +94,7 @@ imputacion = {
     'Potasio': 4.5,
     'Calcio': 9,
     'Microalbumina_24h': 10,
+    'TFG': 60  # valor promedio si no calculado
 }
 
 for k, v in imputacion.items():
@@ -101,33 +102,31 @@ for k, v in imputacion.items():
         datos[k] = v
 
 df_paciente = pd.DataFrame([datos])
+df_paciente = df_paciente.reindex(columns=columnas_esperadas)
 
 if st.button("Predecir"):
-    if np.isnan(datos['TFG']):
-        st.error("No se puede predecir sin TFG calculada. Por favor complete Sexo, Edad y Creatinina Sérica.")
-    else:
-        dmat = xgb.DMatrix(df_paciente)
-        probs = model.predict(dmat)
+    dmat = xgb.DMatrix(df_paciente)
+    probs = model.predict(dmat)
 
-        explainer = shap.TreeExplainer(model)
-        shap_values = explainer.shap_values(df_paciente)
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(df_paciente)
 
-        probs_paciente = probs[0]
-        clase_pred = np.argmax(probs_paciente)
+    probs_paciente = probs[0]
+    clase_pred = np.argmax(probs_paciente)
 
-        st.subheader("Resultados de la Predicción")
-        st.write("Probabilidades por clase:")
-        clases = ["nula", "baja", "alta", "falla renal"]
-        for i, p in enumerate(probs_paciente):
-            st.write(f"Clase {i} ({clases[i]}): {p:.4f} ({p*100:.2f}%)")
+    st.subheader("Resultados de la Predicción")
+    st.write("Probabilidades por clase:")
+    clases = ["nula", "baja", "alta", "falla renal"]
+    for i, p in enumerate(probs_paciente):
+        st.write(f"Clase {i} ({clases[i]}): {p:.4f} ({p*100:.2f}%)")
 
-        st.write(f"**Clase predicha:** {clase_pred} ({clases[clase_pred]})")
+    st.write(f"**Clase predicha:** {clase_pred} ({clases[clase_pred]})")
 
-        shap_vals_clase = shap_values[0, :, clase_pred]
-        imp_df = pd.DataFrame({
-            'Feature': df_paciente.columns,
-            'SHAP value': shap_vals_clase
-        }).sort_values(by='SHAP value', key=abs, ascending=False)
+    shap_vals_clase = shap_values[0, :, clase_pred]
+    imp_df = pd.DataFrame({
+        'Feature': df_paciente.columns,
+        'SHAP value': shap_vals_clase
+    }).sort_values(by='SHAP value', key=abs, ascending=False)
 
-        st.write("Importancia de variables:")
-        st.table(imp_df)
+    st.write("Importancia de variables:")
+    st.table(imp_df)
