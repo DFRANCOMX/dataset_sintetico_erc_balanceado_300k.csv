@@ -13,44 +13,47 @@ def cargar_modelo():
 model = cargar_modelo()
 
 variables = {
-    'Sexo': (0, 1, 1),
-    'Edad': (20, 100, 1),
-    'Glucosa': (50, 400, 1),
-    'Volumen_Orina_24h_ml': (300, 5000, 10),
-    'Creatinina_Orina_mg_dL': (10, 1000, 1),
-    'Creatinina_Serica_mg_dL': (0.3, 15.0, 0.1),
-    'Urea': (5, 150, 1),
-    'BUN': (3, 70, 1),
-    'TFG': (5, 130, 1),
-    'HbA1c': (4.0, 15.0, 0.1),
-    'Proteinas_Orina_24h': (0.0, 10.0, 0.1),
-    'Sodio': (120, 160, 1),
-    'Potasio': (2.5, 7.0, 0.1),
-    'Calcio': (7.0, 12.0, 0.1),
-    'Microalbumina_24h': (0.0, 500.0, 1),
-    'Indice_Urinario': (0.0, 5.0, 0.1)
+    'Sexo': (0, 1),
+    'Edad': (20, 100),
+    'Glucosa': (50, 400),
+    'Volumen_Orina_24h_ml': (300, 5000),
+    'Creatinina_Orina_mg_dL': (10, 1000),
+    'Creatinina_Serica_mg_dL': (0.3, 15.0),
+    'Urea': (5, 150),
+    'BUN': (3, 70),
+    'TFG': (5, 130),
+    'HbA1c': (4.0, 15.0),
+    'Proteinas_Orina_24h': (0, 10),
+    'Sodio': (120, 160),
+    'Potasio': (2.5, 7.0),
+    'Calcio': (7.0, 12.0),
+    'Microalbumina_24h': (0, 500)
 }
 
 st.title("Predicción de Riesgo de Enfermedad Renal Crónica")
 st.markdown("Ingresa los datos del paciente para predecir la probabilidad de ERC")
 
 datos = {}
-for var, (min_val, max_val, step) in variables.items():
+for var, (min_val, max_val) in variables.items():
+    if isinstance(min_val, float) or isinstance(max_val, float):
+        step = 0.1
+    else:
+        step = 1
     if var == 'Sexo':
         datos[var] = st.selectbox(f"{var} (0= Mujer, 1= Hombre)", options=[0, 1])
     else:
-        datos[var] = st.slider(
-            f"{var}",
-            min_value=float(min_val),
-            max_value=float(max_val),
-            value=float(min_val),
-            step=float(step)
-        )
+        datos[var] = st.slider(f"{var} ({min_val} - {max_val})", 
+                               min_value=type(min_val)(min_val), 
+                               max_value=type(max_val)(max_val), 
+                               value=type(min_val)(min_val),
+                               step=step)
 
 df_paciente = pd.DataFrame([datos])
 
+df_paciente = df_paciente[model.feature_names]
+
 if st.button("Predecir"):
-    dmat = xgb.DMatrix(df_paciente)
+    dmat = xgb.DMatrix(df_paciente, feature_names=model.feature_names)
     probs = model.predict(dmat)
 
     explainer = shap.TreeExplainer(model)
@@ -68,4 +71,3 @@ if st.button("Predecir"):
 
     st.write("Importancia de variables:")
     st.table(imp_df)
-
