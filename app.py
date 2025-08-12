@@ -1,73 +1,59 @@
 import streamlit as st
-import xgboost as xgb
 import pandas as pd
+import xgboost as xgb
 import numpy as np
-import shap
 
-@st.cache_resource
-def cargar_modelo():
-    model = xgb.Booster()
-    model.load_model('modelo_erc_xgb.json')
-    return model
+model = xgb.Booster()
+model.load_model("modelo_erc_xgb.json")
 
-model = cargar_modelo()
+df_media = pd.read_csv("dataset_sintetico_erc_balanceado_300k.csv")
+medias = df_media.mean()
+
+st.title("Predicción de Enfermedad Renal Crónica (ERC)")
+st.write("Ingrese los datos del paciente. Los campos vacíos se completarán automáticamente con valores promedio.")
 
 variables = {
-    'Sexo': (0, 1),
-    'Edad': (20, 100),
-    'Glucosa': (50, 400),
-    'Volumen_Orina_24h_ml': (300, 5000),
-    'Creatinina_Orina_mg_dL': (10, 1000),
-    'Creatinina_Serica_mg_dL': (0.3, 15.0),
-    'Urea': (5, 150),
-    'BUN': (3, 70),
-    'TFG': (5, 130),
-    'HbA1c': (4.0, 15.0),
-    'Proteinas_Orina_24h': (0, 10),
-    'Sodio': (120, 160),
-    'Potasio': (2.5, 7.0),
-    'Calcio': (7.0, 12.0),
-    'Microalbumina_24h': (0, 500)
+    "Sexo": (0, 1),  # 0 = Femenino, 1 = Masculino
+    "Edad": (18, 100),
+    "Glucosa": (50.0, 400.0),
+    "Volumen_Orina_24h_ml": (300.0, 5000.0),
+    "Creatinina_Orina_mg_dL": (20.0, 300.0),
+    "Creatinina_Serica_mg_dL": (0.3, 15.0),
+    "Urea": (5.0, 200.0),
+    "BUN": (2.0, 100.0),
+    "TFG": (5.0, 150.0),
+    "HbA1c": (3.0, 15.0),
+    "Proteinas_Orina_24h": (0.0, 10.0),
+    "Sodio": (110.0, 160.0),
+    "Potasio": (2.0, 8.0),
+    "Calcio": (6.0, 15.0),
+    "Microalbumina_24h": (0.0, 3000.0)
 }
 
-st.title("Predicción de Riesgo de Enfermedad Renal Crónica")
-st.markdown("Ingresa los datos del paciente para predecir la probabilidad de ERC")
-
 datos = {}
+
 for var, (min_val, max_val) in variables.items():
-    if isinstance(min_val, float) or isinstance(max_val, float):
-        step = 0.1
-    else:
-        step = 1
-    if var == 'Sexo':
-        datos[var] = st.selectbox(f"{var} (0= Mujer, 1= Hombre)", options=[0, 1])
-    else:
-        datos[var] = st.slider(f"{var} ({min_val} - {max_val})", 
-                               min_value=type(min_val)(min_val), 
-                               max_value=type(max_val)(max_val), 
-                               value=type(min_val)(min_val),
-                               step=step)
+    valor = st.number_input(
+        f"{var} ({min_val} - {max_val})",
+        min_value=min_val,
+        max_value=max_val,
+        value=None,
+        step=0.1 if isinstance(min_val, float) else 1,
+        format="%.2f" if isinstance(min_val, float) else "%d"
+    )
+    datos[var] = valor
 
-df_paciente = pd.DataFrame([datos])
+if st.button("Predecir ERC"):
+    for col in datos:
+        if datos[col] is None:
+            datos[col] = float(medias[col])
 
-df_paciente = df_paciente[model.feature_names]
+    input_df = pd.DataFrame([datos])
+    dmat = xgb.DMatrix(input_df)
 
-if st.button("Predecir"):
-    dmat = xgb.DMatrix(df_paciente, feature_names=model.feature_names)
     probs = model.predict(dmat)
+    pred = (probs >= 0.5).astype(int)[0]
 
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(df_paciente)
-
-    clase_pred = np.argmax(probs[0])
-    st.write(f"Clase predicha: {clase_pred} (0=nula, 1=baja, 2=alta, 3=falla renal)")
-    st.write(f"Probabilidades: {probs[0]}")
-
-    shap_vals_clase = shap_values[0, :, clase_pred]
-    imp_df = pd.DataFrame({
-        'Feature': df_paciente.columns,
-        'SHAP value': shap_vals_clase
-    }).sort_values(by='SHAP value', key=abs, ascending=False)
-
-    st.write("Importancia de variables:")
-    st.table(imp_df)
+    st.subheader("Resultados de la Predicción")
+    st.write(f"**Probabilidad de ERC:** {probs[0]*100:.2f}%")
+    st.write(f"**Clasificación:** {'Positivo' if pred == 1 else 'Negativo'}")
